@@ -1,7 +1,7 @@
 namefont = "PT Sans:style=Regular";
 main_letter_height=2;
-size = 8;
-t="Text";
+size = 5;
+t="Printables";
 $fn=99;
 base_height = 2.4;
 RFID_thick = 1.2;
@@ -11,10 +11,8 @@ union(){
        translate([0,0,.6])cylinder(d=26,h=RFID_thick);
     }
     color("blue"){
-    translate([-10,1,base_height])linear_extrude(main_letter_height) 
+    translate([-14.5,-2,base_height])linear_extrude(main_letter_height) 
         text(t,size,font=namefont);
-   translate([-6,-9,base_height])linear_extrude(main_letter_height) 
-        text("Me",size,font=namefont);
      translate([0,0,base_height])difference(){
       cylinder(h=base_height, d=35);
       translate([0,0,-1])cylinder(h=base_height+2,d=32);
