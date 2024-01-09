@@ -16,7 +16,7 @@ translate([-2,0,0])union(){
     
     }
     translate([-10,14,0])cube([20,5,baseHeight*.7]);
-    translate([0,17,0])cylinder($fn=99,d1=5,d2=.2,h=height*1.1);
+    translate([0,17,0])cylinder($fn=99,d1=5,d2=1,h=height*1.1);
 
 module flange(){
 	difference(){
