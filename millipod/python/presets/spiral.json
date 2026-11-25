@@ -1,0 +1,6 @@
+{
+  "layout": "spiral",
+  "segments": 60,
+  "yaw": 18,
+  "spiral_turn_gap": 2.0
+}
