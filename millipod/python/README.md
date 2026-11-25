@@ -64,28 +64,159 @@ means more material carved from the outer ends of the feet:
 
 ## Extending
 
-* **Faces**: `faces.py`. A face returns `(add, subtract)` solids in head
-  coordinates. `mesh_face("my_face.stl")` lets you design a face in any CAD
-  tool (origin at the head tip, +x forward, z=0 on the bed) and register it in
-  `FACES`.
+* **Faces in code**: `faces.py`. A face returns `(add, subtract)` solids in
+  head coordinates; register it in `FACES`. To make a mesh face permanent, add
+  e.g. `FACES["robot"] = mesh_face("face_meshes/robot.stl", "face_meshes/robot_cut.stl")`.
+  For faces designed in a CAD tool, see "Designing your own face" below.
 * **Textures**: `textures.py`. A texture takes a part and returns it modified
   (`grooves` and `spots` are the examples). Keep cuts shallow and away from
   the front/back faces, joint and feet. Textures in `PER_SEGMENT` are rebuilt
   for every segment (e.g. random patterns); others are built once and reused.
 
-## Key parameters (mm / degrees)
+## Faces (`--face`)
+
+| option | what it is |
+|---|---|
+| `eyes` (default) | two domed eyes (1.8 mm radius) on the front of the head, each with a dimple pupil |
+| `googly` | bigger domed eyes (2.4 mm), set a little closer together and higher |
+| `dimple_eyes` | engraved eyes only, nothing sticks out; the safest to print |
+| `none` | plain rounded head |
+
+### Designing your own face
+
+![](face_meshes/face_guide.png)
+
+Model a face in any CAD tool and pass it in as mesh files (STL, 3MF or OBJ):
+
+* `--face-mesh file.stl` is **added** to the head (eyes, horns, a nose...)
+* `--face-cut file.stl` is **cut** from it (pupils, a mouth, engraved patterns)
+
+Draw them in **face coordinates**: origin on the bed (z = 0), on the centre
+line (y = 0), directly under the tip of the head. +x points forward out of the
+face, +y to the millipede's left, +z up, in millimetres. Both meshes must be
+closed (watertight) solids.
+
+`face_meshes/` has everything needed to start:
+
+| file | what it is |
+|---|---|
+| `head_reference.stl` | the bare head in face coordinates; import it into your CAD tool and model against it |
+| `sample_face.stl` | example add mesh: two domed eyes |
+| `sample_face_cut.stl` | example cut mesh: pupils and a smile |
+| `face_guide.png` | the picture above |
+
+Try the sample (use `--face none` so the built-in eyes don't get in the way):
+
+```bash
+.venv/bin/python millipede.py --face none --face-mesh face_meshes/sample_face.stl --face-cut face_meshes/sample_face_cut.stl
+```
+
+Things to keep in mind:
+
+* Anything behind about x = -8 near the centre line, and further forward at
+  the sides, is cut away by the joint to the first segment.
+* Keep features printable without supports: nothing on the underside that
+  overhangs more than 45°, and nothing narrower than about 0.8 mm.
+* The head's shape depends on `width`, `height`, `head_length`, `pitch` and
+  `foot_flare`. If you change those, regenerate the reference files with the
+  same values: `.venv/bin/python face_guide.py --config my_params.json`
+  (or the same flags you build with; `--out-dir` writes them elsewhere).
+
+## Textures (`--texture`)
+
+Textures apply to the body segments only, not the head or tail.
+
+| option | what it is |
+|---|---|
+| `none` (default) | smooth shells |
+| `grooves` | one groove (0.6 mm deep, 0.8 mm wide) across the top of each segment, following the chevron |
+| `spots` | three random dimples (0.9 mm radius) on top of each segment, different on every segment |
+
+Faces and textures combine freely, e.g. `--face googly --texture spots`.
+
+## All parameters
+
+Lengths in mm, angles in degrees. On the command line, underscores become
+dashes (`foot_flare` → `--foot-flare`); on/off options take `--name` /
+`--no-name` (e.g. `--mouse-ears`, `--no-preview`). In a `--config` JSON file
+use the underscore names.
+
+**Overall**
 
 | parameter | default | notes |
 |---|---:|---|
 | `segments` | 26 | body segments between head and tail |
-| `pitch` | 5.2 | joint spacing; the original was 4.64 |
-| `width`, `height` | 14, 12 | body cross-section |
-| `yaw` | 12 | sideways bend per joint |
-| `clearance` | 0.3 | ball/cavity and neck/slot |
-| `gap` | 0.4 | between nested shells |
-| `ball_radius`, `neck_radius` | 1.2, 0.6 | |
-| `foot_flare` | 1.0 | foot pads stick out this far past the body |
-| `chevron_angle` | 50 | cone half-angle; keep ≥45 |
+| `layout` | `line` | `line` or `spiral` |
+| `name` | auto | output file stem, e.g. `millipede-26seg-line` |
 
-Not yet print-tested: start with a short one (`--segments 6`) to dial in
-`clearance` / `gap` for your printer.
+**Body shape**
+
+| parameter | default | notes |
+|---|---:|---|
+| `pitch` | 5.2 | joint-to-joint distance; the original was 4.64 |
+| `width` | 14 | body width, not counting the foot flare |
+| `height` | 12 | total height |
+| `leg_height` | 3 | height of the legs below the domed body |
+| `chevron_angle` | 50 | cone half-angle of the nested shells; keep ≥45 to avoid overhangs |
+
+**Feet**
+
+| parameter | default | notes |
+|---|---:|---|
+| `foot_gap` | 2 | gap between left and right foot (0 = one wide foot) |
+| `foot_flare` | 1 | how far each foot pad sticks out past the body side |
+| `foot_pad` | 0.6 | vertical edge of the pad before its 45° chamfer |
+| `mouse_ears` | off | thin discs under head and tail for adhesion |
+| `ear_radius` | 6 | |
+| `ear_thickness` | 0.4 | |
+
+**Joint and clearances**
+
+| parameter | default | notes |
+|---|---:|---|
+| `ball_radius` | 1.2 | |
+| `neck_radius` | 0.6 | must stay below `ball_radius` − `clearance` − 0.15 so the ball is captive |
+| `nose_wall` | 0.9 | wall between the ball cavity and the front surface |
+| `clearance` | 0.35 | ball/cavity and neck/slot clearance |
+| `gap` | 0.45 | clearance between nested shells |
+| `bottom_gap` | 0.7 | shell clearance in the first layers (against elephant's foot) |
+| `bottom_gap_height` | 0.4 | how high the wider `bottom_gap` reaches |
+| `yaw` | 12 | sideways bend allowed per joint; see the trade-off table above |
+| `joint_height` | 0 | ball height; 0 = middle of the domed body |
+
+**Head, tail and decoration**
+
+| parameter | default | notes |
+|---|---:|---|
+| `head_length` | 11 | from the first joint behind the head to its tip |
+| `tail_length` | 8 | from the tail's front joint to its tip |
+| `face` | `eyes` | see Faces |
+| `face_mesh` | none | mesh file in face coordinates to add to the head |
+| `face_cut` | none | mesh file in face coordinates to cut from the head |
+| `texture` | `none` | see Textures |
+
+**Spiral layout**
+
+| parameter | default | notes |
+|---|---:|---|
+| `spiral_inner_radius` | 0 | 0 = the tightest radius `yaw` allows |
+| `spiral_turn_gap` | 2 | clearance between neighbouring turns |
+| `spiral_bend_fraction` | 0.75 | use at most this fraction of `yaw` when laying out the spiral |
+
+**Output**
+
+| parameter | default | notes |
+|---|---:|---|
+| `resolution` | 48 | segments per full circle |
+| `out_dir` | `out` | |
+| `stl` | off | also write an STL |
+| `preview` | on | write a PNG preview |
+| `check` | on | check every part is one solid and no parts touch |
+
+The generator refuses parameter combinations that can't work (e.g. a wall
+behind the ball cavity thinner than 0.6 mm, or a ball that isn't captive) and
+says which values to change.
+
+The default `clearance` (0.35) and `gap` (0.45) come from a test print. On a
+different printer or filament, print a short one first (`--segments 6`) and
+adjust them.

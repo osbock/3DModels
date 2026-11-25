@@ -62,18 +62,36 @@ def googly(b, tip):
     return eyes(b, tip, r=2.4, az=32, el=26)
 
 
-def mesh_face(path: str, offset=(0.0, 0.0, 0.0)):
-    """Factory: use an STL/3MF/OBJ (designed with its origin at the head tip,
-    +x forward, z=0 on the bed) as an added face. Register with e.g.
-    FACES["robot"] = mesh_face("faces/robot.stl")."""
+def load_mesh(path: str, tip: float) -> Manifold:
+    """Load an STL/3MF/OBJ drawn in *face coordinates* and move it into head
+    coordinates.
+
+    Face coordinates: origin on the bed (z=0), on the centre line (y=0),
+    directly under the head's tip; +x points forward out of the face, +y to
+    the millipede's left, +z up. Run face_guide.py to get the bare head in
+    these coordinates to model against.
+    """
+    import numpy as np
+    import trimesh
+    from manifold3d import Mesh
+    m = trimesh.load(path, force="mesh")
+    m.merge_vertices()
+    mf = Manifold(Mesh(vert_properties=np.asarray(m.vertices, dtype=np.float32),
+                       tri_verts=np.asarray(m.faces, dtype=np.uint32)))
+    if mf.is_empty():
+        raise SystemExit(f"{path}: not a closed (watertight) solid: {mf.status()}")
+    return mf.translate([tip, 0, 0])
+
+
+def mesh_face(add_path: str | None = None, cut_path: str | None = None):
+    """Factory for a face made from mesh files in face coordinates (see
+    load_mesh): `add_path` is unioned onto the head, `cut_path` is cut out of
+    it. Register with e.g. FACES["robot"] = mesh_face("face_meshes/robot.stl").
+    For one-off use the --face-mesh / --face-cut command-line options instead."""
     def f(b, tip):
-        import numpy as np
-        import trimesh
-        from manifold3d import Mesh
-        m = trimesh.load(path, force="mesh")
-        mf = Manifold(Mesh(vert_properties=np.asarray(m.vertices, dtype=np.float32),
-                           tri_verts=np.asarray(m.faces, dtype=np.uint32)))
-        return mf.translate([tip + offset[0], offset[1], offset[2]]), None
+        add = load_mesh(add_path, tip) if add_path else None
+        cut = load_mesh(cut_path, tip) if cut_path else None
+        return add, cut
     return f
 
 

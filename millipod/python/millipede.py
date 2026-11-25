@@ -68,8 +68,8 @@ class Params:
     ball_radius: float = 1.2
     neck_radius: float = 0.6
     nose_wall: float = 0.9       # wall between ball cavity and nose surface
-    clearance: float = 0.3       # ball/cavity and neck/slot clearance
-    gap: float = 0.4             # clearance between nested shells
+    clearance: float = 0.35      # ball/cavity and neck/slot clearance
+    gap: float = 0.45            # clearance between nested shells
     bottom_gap: float = 0.7      # shell clearance in the first layers (elephant's foot)
     bottom_gap_height: float = 0.4
     yaw: float = 12.0            # side-to-side bend allowed per joint (deg)
@@ -79,6 +79,8 @@ class Params:
     head_length: float = 11.0    # from the first joint behind the head to its tip
     tail_length: float = 8.0     # from the tail's front joint to its tip
     face: str = "eyes"           # see faces.py
+    face_mesh: str = ""          # STL/3MF/OBJ in face coordinates to add to the head
+    face_cut: str = ""           # STL/3MF/OBJ in face coordinates to cut from the head
     texture: str = "none"        # see textures.py
 
     # --- spiral layout ----------------------------------------------------
@@ -162,6 +164,17 @@ def swept_yaw(m: Manifold, pivot, max_deg: float, step: float = 1.5) -> Manifold
     k = max(1, math.ceil(2 * max_deg / step))
     parts = [yaw_about(m, pivot, -max_deg + 2 * max_deg * i / k) for i in range(k + 1)]
     return Manifold.batch_hull(parts)
+
+
+def drop_slivers(m: Manifold, min_volume: float = 1e-3) -> Manifold:
+    """Remove zero-volume shells that booleans between nearly parallel
+    faceted surfaces (e.g. groove walls on the cones) can leave behind.
+    Real disconnected pieces are kept, so the check still reports them."""
+    pieces = m.decompose()
+    if len(pieces) == 1:
+        return m
+    keep = [q for q in pieces if abs(q.volume()) >= min_volume]
+    return Manifold.compose(keep) if keep else m
 
 
 def ellipsoid(center, radii, n: int) -> Manifold:
@@ -249,7 +262,7 @@ class Builder:
     def body(self, index: int) -> Manifold:
         m = (self.envelope ^ self.front) - self.back_carve - self.socket
         m = textures.apply(self.p.texture, m, self, "body", index)
-        return m + self.ball
+        return drop_slivers(m + self.ball)
 
     def head(self) -> Manifold:
         p = self.p
@@ -264,9 +277,13 @@ class Builder:
             m = m + add
         if sub is not None:
             m = m - sub
+        if p.face_mesh:
+            m = m + faces.load_mesh(p.face_mesh, tip)
+        if p.face_cut:
+            m = m - faces.load_mesh(p.face_cut, tip)
         m = m - self.back_carve
         m = textures.apply(p.texture, m, self, "head", 0)
-        return m + self.ball
+        return drop_slivers(m + self.ball)
 
     def tail(self) -> Manifold:
         p = self.p
@@ -276,7 +293,7 @@ class Builder:
         if p.mouse_ears:
             m = m + self.ears(-p.tail_length + 2)
         m = (m ^ self.front) - self.socket
-        return textures.apply(p.texture, m, self, "tail", p.segments + 1)
+        return drop_slivers(textures.apply(p.texture, m, self, "tail", p.segments + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -338,13 +355,16 @@ def default_name(p: Params) -> str:
     s = f"millipede-{p.segments}seg-{p.layout}"
     if p.face != "eyes":
         s += f"-{p.face}"
+    if p.face_mesh or p.face_cut:
+        s += "-" + Path(p.face_mesh or p.face_cut).stem
     if p.texture != "none":
         s += f"-{p.texture}"
     return s
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+def parse_params(argv=None, description=None) -> Params:
+    """Command line (+ optional --config JSON) -> Params."""
+    ap = argparse.ArgumentParser(description=description or __doc__.split("\n\n")[0],
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     ap.add_argument("--config", help="JSON file with parameter values (command line wins)")
     defaults = Params()
@@ -369,7 +389,14 @@ def main(argv=None):
         raise SystemExit(f"unknown face {p.face!r}; choose from {', '.join(faces.FACES)}")
     if p.texture not in textures.TEXTURES:
         raise SystemExit(f"unknown texture {p.texture!r}; choose from {', '.join(textures.TEXTURES)}")
+    for path in (p.face_mesh, p.face_cut):
+        if path and not Path(path).is_file():
+            raise SystemExit(f"face mesh not found: {path}")
+    return p
 
+
+def main(argv=None):
+    p = parse_params(argv)
     parts, info = build(p)
     print(f"built {len(parts)} parts in {info['build_s']} s; size {info['size_mm']} mm")
     for k in ("max_bend_deg", "spiral_inner_radius"):
