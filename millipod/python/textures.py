@@ -1,6 +1,6 @@
 """Surface textures for the shells.
 
-A texture function gets the part (in local coordinates, before the ball/neck
+A texture function gets the part (in local coordinates, before the pin or ball
 is added), the Builder, the part kind ("head", "body", "tail") and its index,
 and returns the modified part. Keep cuts shallow and away from the joint,
 feet and the front/back faces (anything that changes those can make parts
@@ -24,8 +24,8 @@ def _band(b, depth_from_front: float, width: float) -> Manifold:
     back = 4 * max(p.width, p.height) + p.head_length
     r_out = p.nose_radius - depth_from_front
     r_in = r_out - width
-    outer = mp.bullet(max(r_out, 0.05), p.chevron_angle, back, b.n)
-    inner = mp.bullet(max(r_in, 0.01), p.chevron_angle, back, b.n)
+    outer = mp.bullet(max(r_out, 0.05), p.chevron_angle, back, b.n, p.side_angle)
+    inner = mp.bullet(max(r_in, 0.01), p.chevron_angle, back, b.n, p.side_angle)
     return (outer - inner).translate(list(b.Q))
 
 

@@ -2,19 +2,18 @@
 """Parametric print-in-place millipede.
 
 Every part (head, N body segments, tail) is a separate solid. Adjacent parts
-are linked by a captive ball joint at mid-height and nest like stacked
-lampshades:
+are linked by a captive joint and nest like stacked lampshades:
 
 * Each part's front is a "bullet" around its front joint Q: a sphere of radius
   `nose_radius` plus the cone tangent to it (half-angle `chevron_angle`).
   Everything belonging to that part lies inside its own bullet.
 * The back of each part is carved by the *next* part's bullet, grown by `gap`
-  and swept through +/-`yaw` about the joint. Since the next part never leaves
-  its own bullet, the two parts cannot collide anywhere inside that yaw range.
-* The ball (owned by the front part) sits in a cavity in the next part's nose,
-  reached through a fan-shaped slot. The slot is thinner than the ball, so the
-  ball is captive. Ball and cavity have pointed 45 degree tops and bottoms so
-  nothing overhangs.
+  and swept through +/-`yaw` sideways and through `drape` (down) / `arch` (up)
+  about the joint. Since the next part never leaves its own bullet, the two
+  parts cannot collide anywhere inside that range.
+* The joint (joints.py) links each part to the one behind it: a sideways
+  hinge pin (default), two interlocking rings, or a captive ball. Each joint
+  type says how far it bends; the shells are carved to match.
 
 Local frame of every part: +x points toward the head, +y left, +z up, the
 part's front joint is at (0, 0, joint_height) and its back joint is at
@@ -38,6 +37,7 @@ import numpy as np
 from manifold3d import CrossSection, JoinType, Manifold, OpType, set_circular_segments
 
 import faces
+import joints
 import layouts
 import textures
 
@@ -54,7 +54,8 @@ class Params:
     width: float = 14.0          # body width (without foot flare)
     height: float = 12.0         # total height
     leg_height: float = 3.0      # height of the legs below the domed body
-    chevron_angle: float = 50.0  # cone half-angle of the nested shells (deg, >=45 prints cleanly)
+    chevron_angle: float = 45.0  # cone half-angle of the nested shells (deg, >=45 prints cleanly)
+    side_angle: float = 25.0     # shell half-angle at the sides above the feet (no overhang there): smaller sweeps back further. 0 = chevron_angle
 
     # --- feet -----------------------------------------------------------
     foot_gap: float = 2.0        # gap between left and right foot (0 = one wide foot)
@@ -73,7 +74,15 @@ class Params:
     bottom_gap: float = 0.7      # shell clearance in the first layers (elephant's foot)
     bottom_gap_height: float = 0.4
     yaw: float = 12.0            # side-to-side bend allowed per joint (deg)
-    joint_height: float = 0.0    # 0 = middle of the domed body
+    joint: str = "hinge"         # see joints.py: hinge, rings or ball
+    pin_radius: float = 0.75     # hinge/rings: the sideways bar (it also has a pointed underside)
+    drape: float = 12.0          # hinge/rings: downward bend allowed per joint (deg), e.g. over a finger
+    arch: float = 6.0            # hinge/rings: upward bend allowed per joint (deg)
+    twist: float = 15.0          # rings: twist allowed per joint about the body's length (deg)
+    ring_width: float = 2.4      # rings: width of the upright ring at the front of each part
+    ring_slack: float = 0.0      # rings: extra play in every direction (mm)
+    side_wall: float = 1.2       # hinge/rings: solid wall kept outside the bar ends, hiding the joint
+    joint_height: float = 0.0    # 0 = auto (hinge/rings: leg_height + 2.5; ball: middle of the dome)
 
     # --- head / tail / decoration ----------------------------------------
     head_length: float = 11.0    # from the first joint behind the head to its tip
@@ -99,32 +108,34 @@ class Params:
 
     # derived -------------------------------------------------------------
     @property
+    def joint_type(self) -> joints.Joint:
+        return joints.get(self.joint)
+
+    @property
     def nose_radius(self) -> float:
-        return self.ball_radius + self.clearance + self.nose_wall
+        return self.joint_type.nose_radius(self)
 
     @property
     def zc(self) -> float:
-        return self.joint_height or (self.leg_height + self.height) / 2
+        return self.joint_height or self.joint_type.default_height(self)
+
+    @property
+    def bend_down_up(self) -> tuple[float, float]:
+        return self.joint_type.bends(self)
 
     def validate(self) -> list[str]:
         """Return a list of problems; empty means OK."""
         errs = []
-        back_wall = self.pitch - self.nose_radius - self.gap - self.ball_radius - self.clearance
-        if back_wall < 0.6:
-            errs.append(
-                f"wall between a cavity and the cup behind it is {back_wall:.2f} mm (<0.6): "
-                "increase pitch or reduce ball_radius / nose_wall / gap")
-        if self.neck_radius + self.clearance >= self.ball_radius - 0.15:
-            errs.append("ball would not be captive: need neck_radius + clearance < ball_radius - 0.15")
-        top = self.zc + (self.ball_radius + self.clearance) * math.sqrt(2)
-        if top > self.height - 1.0 or self.zc - (self.ball_radius + self.clearance) * math.sqrt(2) < 1.0:
-            errs.append("ball cavity does not fit vertically: check joint_height / height")
+        if self.joint not in joints.JOINTS:
+            return [f"unknown joint {self.joint!r}; choose from {', '.join(joints.JOINTS)}"]
+        errs += self.joint_type.validate(self)
         if self.chevron_angle < 45:
             errs.append("chevron_angle < 45 deg will leave overhangs under the shells")
         if self.foot_gap / 2 >= self.width / 2 - 1:
             errs.append("foot_gap too large for width")
-        if self.head_groove > self.zc - self.nose_radius:
-            errs.append(f"head_groove reaches the joint: keep it <= {self.zc - self.nose_radius:.1f}")
+        groove_max = self.joint_type.max_head_groove(self)
+        if self.head_groove > groove_max:
+            errs.append(f"head_groove reaches the joint: keep it <= {groove_max:.1f}")
         if self.head_groove >= self.width / 2 + self.foot_flare - 0.8:
             errs.append("head_groove is wider than the head's feet")
         return errs
@@ -147,13 +158,38 @@ def pointed_ball(r: float, n: int) -> Manifold:
                                 dot.translate([0, 0, -tip])])
 
 
-def bullet(r: float, half_angle_deg: float, back: float, n: int) -> Manifold:
+def shell_angle(psi: float, top: float, side: float) -> float:
+    """Half-angle (deg) of the shell cone in the direction psi (radians, 0 =
+    the +/-y side, +pi/2 = up). The top uses `top` (an overhang, so >=45);
+    the upper sides blend to `side` along an ellipse; below the joint the
+    angle returns to `top` by 45 deg down, so the feet stay thick."""
+    if not side or side == top:
+        return top
+    c, s = abs(math.cos(psi)), math.sin(psi)
+    if s >= 0:
+        ty, tz = math.tan(math.radians(side)), math.tan(math.radians(top))
+        return math.degrees(math.atan(ty * tz / math.hypot(tz * c, ty * s)))
+    t = min(1.0, math.degrees(math.asin(-s)) / 45.0)
+    return side + (top - side) * t * t * (3 - 2 * t)
+
+
+def bullet(r: float, half_angle_deg: float, back: float, n: int,
+           side_angle_deg: float = 0.0) -> Manifold:
     """Sphere of radius r at the origin plus the cone tangent to it that opens
-    toward -x with the given half-angle, truncated at x = -back."""
-    phi = math.radians(half_angle_deg)
-    apex = r / math.sin(phi)
-    rad = (apex + back) * math.tan(phi)
-    disk = Manifold.cylinder(0.01, rad, rad, n * 2, True).rotate([0, 90, 0]).translate([-back, 0, 0])
+    toward -x with the given half-angle, truncated at x = -back. With
+    side_angle_deg the cone sweeps back further at the sides (shell_angle)."""
+    if not side_angle_deg or side_angle_deg == half_angle_deg:
+        phi = math.radians(half_angle_deg)
+        rad = (r / math.sin(phi) + back) * math.tan(phi)
+        disk = Manifold.cylinder(0.01, rad, rad, n * 2, True).rotate([0, 90, 0]).translate([-back, 0, 0])
+        return Manifold.batch_hull([Manifold.sphere(r, n), disk])
+    pts = []
+    for k in range(4 * n):
+        psi = 2 * math.pi * k / (4 * n)
+        phi = math.radians(shell_angle(psi, half_angle_deg, side_angle_deg))
+        rad = (r / math.sin(phi) + back) * math.tan(phi)
+        pts.append((rad * math.cos(psi), rad * math.sin(psi)))
+    disk = CrossSection([pts]).extrude(0.01).transform([[0, 0, 1, -back], [1, 0, 0, 0], [0, 1, 0, 0]])
     return Manifold.batch_hull([Manifold.sphere(r, n), disk])
 
 
@@ -170,6 +206,38 @@ def swept_yaw(m: Manifold, pivot, max_deg: float, step: float = 1.5) -> Manifold
     k = max(1, math.ceil(2 * max_deg / step))
     parts = [yaw_about(m, pivot, -max_deg + 2 * max_deg * i / k) for i in range(k + 1)]
     return Manifold.batch_hull(parts)
+
+
+def rotate_about(m: Manifold, pivot, yaw: float, pitch: float) -> Manifold:
+    """Pitch about the y axis, then yaw about the z axis, both through pivot.
+    Negative pitch lowers whatever is behind the pivot (-x)."""
+    px, py, pz = pivot
+    return m.translate([-px, -py, -pz]).rotate([0, pitch, 0]).rotate([0, 0, yaw]).translate([px, py, pz])
+
+
+def swept(m: Manifold, pivot, yaw: float, down: float, up: float, step: float = 2.0) -> Manifold:
+    """Like swept_yaw, but also tilting the part behind the pivot from `down`
+    degrees down to `up` degrees up."""
+    if not down and not up:
+        return swept_yaw(m, pivot, yaw)
+    ky = max(1, math.ceil(2 * yaw / step))
+    kp = max(1, math.ceil((down + up) / step))
+    return Manifold.batch_hull([
+        rotate_about(m, pivot, -yaw + 2 * yaw * i / ky, -down + (down + up) * j / kp)
+        for i in range(ky + 1) for j in range(kp + 1)])
+
+
+def y_rod(r: float, length: float, n: int, point_down: float = 0.0, roof: float = 0.0) -> Manifold:
+    """Round rod along +y from y=0 to y=length, axis through the origin.
+    point_down / roof: 45 degree point below / above the rod at this distance
+    from the axis (0 = none); the roof is cut flat at 1.2 x r."""
+    rod = Manifold.cylinder(length, r, r, n).rotate([-90, 0, 0])
+    line = Manifold.cube([0.001, length, 0.001])
+    if point_down:
+        rod = Manifold.batch_hull([rod, line.translate([0, 0, -point_down])])
+    if roof:
+        rod = Manifold.batch_hull([rod, line.translate([0, 0, roof])]) ^ slab_z(-100, 1.2 * r)
+    return rod
 
 
 def drop_slivers(m: Manifold, min_volume: float = 1e-3) -> Manifold:
@@ -207,28 +275,29 @@ class Builder:
         back = 4 * max(p.width, p.height) + p.head_length
 
         # region every part's material must stay inside (front bullet)
-        self.front = bullet(p.nose_radius, p.chevron_angle, back, n).translate(list(self.Q))
+        self.front = bullet(p.nose_radius, p.chevron_angle, back, n, p.side_angle).translate(list(self.Q))
 
-        # carve for the back of a part: next part's bullet + gap, swept by yaw
-        b = bullet(p.nose_radius + p.gap, p.chevron_angle, back, n).translate(list(self.Qb))
-        carve = swept_yaw(b, self.Qb, p.yaw)
+        # carve for the back of a part: next part's bullet + gap, swept through
+        # the joint's range of motion. Tilting a long cone sweeps a huge
+        # volume, so only the part near the joint is swept; far behind, the
+        # unswept cone covers the rest.
+        down, up = p.bend_down_up
+        near = 3 * p.pitch + max(p.width, p.height)
+
+        def sweep_cup(grow):
+            short = bullet(p.nose_radius + grow, p.chevron_angle, near, n, p.side_angle).translate(list(self.Qb))
+            whole = bullet(p.nose_radius + grow, p.chevron_angle, back, n, p.side_angle).translate(list(self.Qb))
+            return swept(short, self.Qb, p.yaw, down, up) + swept_yaw(whole, self.Qb, p.yaw)
+
+        slack = p.joint_type.slack(p)
+        carve = sweep_cup(p.gap + slack)
         if p.bottom_gap > p.gap:
-            bb = bullet(p.nose_radius + p.bottom_gap, p.chevron_angle, back, n).translate(list(self.Qb))
-            carve = carve + (swept_yaw(bb, self.Qb, p.yaw) ^ slab_z(-1, p.bottom_gap_height))
+            carve = carve + (sweep_cup(p.bottom_gap + slack) ^ slab_z(-1, p.bottom_gap_height))
         self.back_carve = carve
 
-        # socket in the front of a part for the previous part's ball
-        cav = pointed_ball(p.ball_radius + p.clearance, n).translate(list(self.Q))
-        slot_len = p.nose_radius + p.gap + 3
-        slot = x_cylinder(0, slot_len, p.neck_radius + p.clearance, n).translate(list(self.Q))
-        self.socket = cav + swept_yaw(slot, self.Q, p.yaw)
-
-        # ball + neck on the back of a part
-        neck_end = -p.pitch + p.nose_radius + p.gap + 0.5
-        self.ball = (pointed_ball(p.ball_radius, n).translate(list(self.Qb))
-                     + x_cylinder(-p.pitch, neck_end, p.neck_radius, n).translate([0, 0, zc]))
-
         self.envelope = self._envelope(back)
+        self.socket = p.joint_type.socket(self)  # cut from the front of every part
+        self.link = p.joint_type.link(self)      # added at the back of every part
 
     # cross-section of the body (y, z), extruded along x
     def _section(self, inset: float = 0.0) -> CrossSection:
@@ -276,7 +345,7 @@ class Builder:
     def body(self, index: int) -> Manifold:
         m = (self.envelope ^ self.front) - self.back_carve - self.socket
         m = textures.apply(self.p.texture, m, self, "body", index)
-        return drop_slivers(m + self.ball)
+        return drop_slivers(m + self.link)
 
     def head(self) -> Manifold:
         p = self.p
@@ -297,7 +366,7 @@ class Builder:
             m = m - faces.load_mesh(p.face_cut, tip)
         m = m - self.back_carve
         m = textures.apply(p.texture, m, self, "head", 0)
-        return drop_slivers(m + self.ball)
+        return drop_slivers(m + self.link)
 
     def tail(self) -> Manifold:
         p = self.p
@@ -426,7 +495,10 @@ def main(argv=None):
     stem = p.name or default_name(p)
     import trimesh
     mesh = trimesh.util.concatenate([to_trimesh(q) for q in parts])
-    mesh.export(out / f"{stem}.3mf")
+    # one object named after the file (trimesh would call it "geometry_0")
+    scene = trimesh.Scene()
+    scene.add_geometry(mesh, node_name=stem, geom_name=stem)
+    scene.export(out / f"{stem}.3mf")
     if p.stl:
         mesh.export(out / f"{stem}.stl")
     (out / f"{stem}.json").write_text(json.dumps(dataclasses.asdict(p), indent=2) + "\n")
