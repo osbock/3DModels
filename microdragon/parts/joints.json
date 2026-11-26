@@ -1,0 +1,25 @@
+{
+  "note": "head.stl, middle.stl, tail.stl are in one frame forming a 1-segment dragon. For N segments: middle copy k (k=0..N-1) is translated by k*pitch; tail is translated by (N-1)*pitch.",
+  "pitch": [
+    7.7575,
+    0.0,
+    0.0
+  ],
+  "head_pin": [
+    15.28,
+    0.0
+  ],
+  "segment_ring": [
+    15.57,
+    0.17
+  ],
+  "tail_ring": [
+    23.39,
+    0.0
+  ],
+  "spiral": {
+    "max_bend_deg": 10.0,
+    "arm_gap": 26.0,
+    "note": "max bend per joint and spacing between spiral turns. seg-seg joint keeps 0.37mm gap to +-8deg, ~0.25 at 10, touches by 16; tail similar. Head joint has ~0 side play so the head stays straight. arm_gap 26 leaves >=0.4mm between turns (24 overlapped spike tips)."
+  }
+}
