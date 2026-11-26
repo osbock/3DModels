@@ -69,7 +69,7 @@ means more material carved from the outer ends of the feet:
   e.g. `FACES["robot"] = mesh_face("face_meshes/robot.stl", "face_meshes/robot_cut.stl")`.
   For faces designed in a CAD tool, see "Designing your own face" below.
 * **Textures**: `textures.py`. A texture takes a part and returns it modified
-  (`grooves` and `spots` are the examples). Keep cuts shallow and away from
+  (`grooves`, `spots` and `bumpy` are the examples). Keep cuts shallow and away from
   the front/back faces, joint and feet. Textures in `PER_SEGMENT` are rebuilt
   for every segment (e.g. random patterns); others are built once and reused.
 
@@ -130,9 +130,14 @@ Textures apply to the body segments only, not the head or tail.
 |---|---|
 | `none` (default) | smooth shells |
 | `grooves` | one groove (0.6 mm deep, 0.8 mm wide) across the top of each segment, following the chevron |
-| `spots` | three random dimples (0.9 mm radius) on top of each segment, different on every segment |
+| `spots` | three rows of shallow oval dimples (2.2 mm across, 0.45 mm deep): one down the spine and one along each side, the same on every segment |
+| `bumpy` | densely packed small bumps of random size (0.7–1.5 mm across), different on every segment; adds ~0.7 mm to the height. Bumps have 45° cones underneath so the ones on the sides print without supports |
 
 Faces and textures combine freely, e.g. `--face googly --texture spots`.
+
+To tune `spots` or `bumpy` (spot size and position; bump size range, how far
+bumps stick out, how tightly they pack), change the keyword defaults of
+`spots()` / `bumpy()` in `textures.py`.
 
 ## All parameters
 
