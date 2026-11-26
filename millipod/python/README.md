@@ -43,7 +43,9 @@ clearance; `--no-check` skips that.
   `foot_pad`). At the defaults each segment touches the bed with ~44 mm²,
   compared with ~27 mm² for the original 26-vertebra model. In the first
   `bottom_gap_height` mm the clearance between shells widens to `bottom_gap`
-  so elephant's foot can't fuse neighbours. `--mouse-ears` adds thin discs
+  so elephant's foot can't fuse neighbours. The head has a 45° groove
+  underneath (`head_groove`) so it touches the bed with about the same area
+  as a segment (44 mm² instead of 116) and comes off as easily. `--mouse-ears` adds thin discs
   under the head and tail.
 * **Layouts** (`layouts.py`) only supply joint points spaced `pitch` apart.
   The spiral is Archimedean, tail in the middle, and its inner radius is
@@ -194,6 +196,7 @@ use the underscore names.
 | parameter | default | notes |
 |---|---:|---|
 | `head_length` | 11 | from the first joint behind the head to its tip |
+| `head_groove` | 4.5 | height of the 45° groove under the head (twice as wide at the bed). Bigger = smaller head feet, easier to remove: 3 → 74 mm², 4.5 → 44 mm², 5 → 35 mm². 0 = flat-bottomed head (116 mm²) |
 | `tail_length` | 8 | from the tail's front joint to its tip |
 | `face` | `eyes` | see Faces |
 | `face_mesh` | none | mesh file in face coordinates to add to the head |

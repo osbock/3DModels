@@ -77,6 +77,8 @@ class Params:
 
     # --- head / tail / decoration ----------------------------------------
     head_length: float = 11.0    # from the first joint behind the head to its tip
+    head_groove: float = 4.5     # 45 deg groove under the head: this tall, 2x as wide at the bed
+                                 # (smaller feet = easier to remove; 0 = flat-bottomed head)
     tail_length: float = 8.0     # from the tail's front joint to its tip
     face: str = "eyes"           # see faces.py
     face_mesh: str = ""          # STL/3MF/OBJ in face coordinates to add to the head
@@ -121,6 +123,10 @@ class Params:
             errs.append("chevron_angle < 45 deg will leave overhangs under the shells")
         if self.foot_gap / 2 >= self.width / 2 - 1:
             errs.append("foot_gap too large for width")
+        if self.head_groove > self.zc - self.nose_radius:
+            errs.append(f"head_groove reaches the joint: keep it <= {self.zc - self.nose_radius:.1f}")
+        if self.head_groove >= self.width / 2 + self.foot_flare - 0.8:
+            errs.append("head_groove is wider than the head's feet")
         return errs
 
 
@@ -258,6 +264,14 @@ class Builder:
         p = self.p
         return Manifold.cylinder(p.ear_thickness, p.ear_radius, p.ear_radius, self.n * 2).translate([x, 0, 0])
 
+    def groove(self, h: float) -> Manifold:
+        """A-frame groove along x on the centre line: h tall, 45 deg sides."""
+        if h <= 0:
+            return Manifold()
+        w = h + 5
+        cs = CrossSection([[(-w, -5), (w, -5), (0, h)]])
+        return self._extrude_x(cs, -100, 100)
+
     # parts ------------------------------------------------------------------
     def body(self, index: int) -> Manifold:
         m = (self.envelope ^ self.front) - self.back_carve - self.socket
@@ -268,7 +282,7 @@ class Builder:
         p = self.p
         hw = p.width / 2 + p.foot_flare + 0.5
         ell = ellipsoid((-p.pitch, 0, p.height * 0.35), (p.head_length, hw, p.height * 0.68), self.n)
-        m = self.envelope ^ ell
+        m = (self.envelope ^ ell) - self.groove(p.head_groove)
         tip = p.head_length - p.pitch
         if p.mouse_ears:
             m = m + self.ears(tip - 2)
