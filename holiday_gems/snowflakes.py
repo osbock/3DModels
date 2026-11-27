@@ -182,7 +182,8 @@ def narrow_notch(strokes):
     return max((p.area for p in getattr(filled, "geoms", [filled])), default=0.0)
 
 
-def render(mesh, path, title):
+def render(mesh, path, title, rgb=(0.55, 0.75, 0.95), face_rgb=None):
+    """face_rgb: optional (n_faces, 3) array of per-face colours."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -192,10 +193,12 @@ def render(mesh, path, title):
     light = np.array([-0.4, -0.5, 0.8])
     light /= np.linalg.norm(light)
     shade = 0.35 + 0.65 * np.clip(mesh.face_normals @ light, 0, 1)
-    colors = np.c_[0.55 * shade, 0.75 * shade, 0.95 * shade, np.ones_like(shade)]
+    base = np.asarray(face_rgb) if face_rgb is not None else np.tile(rgb, (len(shade), 1))
+    colors = np.c_[base * shade[:, None], np.ones_like(shade)]
+    tris = mesh.triangles - np.r_[mesh.bounds.mean(axis=0)[:2], 0]  # centre in xy
     for i, (elev, azim) in enumerate(((90, -90), (35, -60))):
         ax = fig.add_subplot(1, 2, i + 1, projection="3d")
-        ax.add_collection3d(Poly3DCollection(mesh.triangles, facecolors=colors,
+        ax.add_collection3d(Poly3DCollection(tris, facecolors=colors,
                                              edgecolor="none"))
         r = mesh.extents.max() / 2
         ax.set_xlim(-r, r); ax.set_ylim(-r, r); ax.set_zlim(-r / 2, r / 2)
