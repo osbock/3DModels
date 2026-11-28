@@ -90,3 +90,28 @@ print3d print u1 out/santa_cap.stl --tool 3 --change-at 2.85:2 --start
 That comes to about 4¾ minutes and 1.5 g with the prime tower.
 
 Or in the OrcaSlicer GUI: slice, then in the preview's layer slider go to layer 14, right-click the + and choose a filament change to the white filament (on the U1, the toolhead with white loaded). Single colour, it slices to about 3 minutes and 0.9 g.
+
+## Menorah
+
+```bash
+../millipod/python/.venv/bin/python menorah.py             # all designs
+../millipod/python/.venv/bin/python menorah.py classic     # one design
+../millipod/python/.venv/bin/python menorah.py --size 24   # width in mm (default 25)
+```
+
+A nine-candle hanukkiah with the shamash raised in the middle, about 25 mm wide and 3 mm tall:
+
+| Design | Look | Size (mm) |
+|---|---|---|
+| `classic` | four nested curved branches meeting a central stem, on a flared base | 25 × 19.5 |
+| `modern` | straight bar on a triangular bracket and a stepped stand | 25 × 17.2 |
+
+Writes `out/menorah_<name>.stl` and `.png`, and `out/menorahs_all.stl` with both side by side.
+
+It prints in one colour, but like the Santa cap it is also made for **one colour change by height**: the menorah stays at or below 2.6 mm and the nine flames are short, flat-topped plates that end at 3.05 mm, two layers higher. **Change at layer 14 (Z = 2.85 mm)** for different-coloured flames: layers 14 and 15 are flames only. For example, the menorah in purple on tool 4 and white flames on tool 2:
+
+```bash
+print3d print u1 out/menorah_classic.stl --tool 4 --change-at 2.85:2 --start
+```
+
+That slices to about 4 minutes and 1 g with the prime tower. On the Prusa (0.2 mm first layer), the change is at Z 2.8 instead, as an M600 filament swap: `print3d print markey out/menorah_classic.stl --change-at 2.8 --start`. `FLAME_LAYERS` at the top of `menorah.py` sets how many layers the flames stand above the body.
